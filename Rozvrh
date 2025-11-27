@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Interaktivní rozvrh — 2IT</title>
+<style>
+ :root{
+   --bg:#0b0b0c; --panel:#222; --card:#2f2f31;
+   --muted:#9aa3a8; --accent:#4fb0e6; --text:#fff;
+   font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+ }
+ *{box-sizing:border-box}
+ body{margin:0;background:var(--bg);color:var(--text);padding:18px;display:flex;justify-content:center}
+ .wrap{width:100%;max-width:1200px}
+ header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:12px}
+ header h1{margin:0;font-size:18px}
+ .controls{display:flex;gap:8px;align-items:center}
+ button, .btn {cursor:pointer;border:0;padding:8px 10px;border-radius:8px;background:#3a3a3b;color:var(--text);font-weight:600}
+ button.ghost{background:transparent;border:1px solid rgba(255,255,255,0.06)}
+ button.danger{background:#b53a3a}
+ /* timetable */
+ .timetable{background:linear-gradient(180deg,#2b2b2b,#232323);padding:12px;border-radius:8px;overflow:auto}
+ .grid{display:grid;grid-template-columns:120px repeat(7, minmax(110px,1fr));gap:10px;align-items:start}
+ .cell{padding:6px}
+ .head{background:var(--accent);color:#022; padding:10px;border-radius:6px;font-weight:800;text-align:center}
+ .daylabel{background:#333;padding:10px;border-radius:6px;font-weight:800;color:var(--accent)}
+ .slot{
+   background:var(--card);padding:8px;border-radius:8px;min-height:64px;display:flex;flex-direction:column;justify-content:space-between;
+   border:2px solid rgba(255,255,255,0.02);
+   position:relative;
+   transition:transform .08s ease, box-shadow .08s;
+ }
+ .slot:hover{transform:translateY(-3px);box-shadow:0 8px 18px rgba(0,0,0,.6);cursor:pointer}
+ .slot.empty{opacity:.7;display:flex;align-items:center;justify-content:center;color:var(--muted);font-weight:700}
+ .subject { font-weight:900; font-size:16px; line-height:1; }
+ .submeta{ font-size:12px; color:var(--muted); margin-top:6px; font-weight:700 }
+ .badge{position:absolute;right:8px;top:8px;font-size:11px;color:rgba(255,255,255,.8)}
+ /* color left accent */
+ .accent-left{box-shadow:inset 6px 0 0 rgba(0,0,0,0.1)}
+ .c-orange{--c:#ff9a19}
+ .c-blue{--c:#59c5ff}
+ .c-pink{--c:#ffb9c4}
+ .c-green{--c:#8be07e}
+ .slot.c-orange { border-left:6px solid var(--c) }
+ .slot.c-blue { border-left:6px solid var(--c) }
+ .slot.c-pink { border-left:6px solid var(--c) }
+ .slot.c-green { border-left:6px solid var(--c) }
+ /* modal */
+ .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;padding:18px}
+ .modal{background:#111;border-radius:10px;padding:16px;max-width:520px;width:100%;border:1px solid rgba(255,255,255,0.04)}
+ .modal h3{margin:0 0 8px}
+ label{display:block;margin-top:8px;font-weight:700}
+ input[type="text"], select, input[type="color"]{width:100%;padding:8px;border-radius:8px;border:1px solid #333;background:#1b1b1b;color:var(--text)}
+ .modal .row{display:flex;gap:8px}
+ .modal .row .col{flex:1}
+ .modal .actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
+ footer{margin-top:10px;color:var(--muted);font-size:13px;text-align:center}
+ /* responsive */
+ @media (max-width:900px){
+   .grid{grid-template-columns:80px repeat(7, minmax(80px,1fr))}
+   .head{font-size:13px}
+   .daylabel{font-size:13px}
+   .subject{font-size:14px}
+ }
+ @media (max-width:520px){
+   header{flex-direction:column;align-items:flex-start;gap:10px}
+   .grid{grid-template-columns:72px repeat(7, minmax(64px,1fr))}
+ }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+<h1>Interaktivní rozvrh — 2IT (24.-28.11.2025)</h1>
+<div class="controls">
+<button id="resetBtn" class="ghost">Obnovit (smazat)</button>
+<button id="exportBtn" class="ghost">Export JSON</button>
+</div>
+</header>
+<div class="timetable" role="application" aria-label="Interaktivní rozvrh">
+<div class="grid" id="grid">
+<!-- top-left empty -->
+<div class="cell"></div>
+<!-- hour headers -->
+<div class="cell head">1<br><small>8:05–8:50</small></div>
+<div class="cell head">2<br><small>9:00–9:45</small></div>
+<div class="cell head">3<br><small>10:05–10:50</small></div>
+<div class="cell head">4<br><small>11:00–11:45</small></div>
+<div class="cell head">5<br><small>11:55–12:40</small></div>
+<div class="cell head">6<br><small>12:45–13:30</small></div>
+<div class="cell head">7<br><small>13:35–14:20</small></div>
+<!-- days -->
+<!-- we'll generate rows by JS, but include placeholders for accessibility -->
+</div>
+</div>
+<footer>Klikni na buňku pro přidání / úpravu předmětu. Data jsou uložena v prohlížeči.</footer>
+</div>
+<!-- Modal -->
+<div class="modal-backdrop" id="backdrop" aria-hidden="true">
+<div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+<h3 id="modalTitle">Úprava hodiny</h3>
+<form id="slotForm">
+<input type="hidden" id="slotKey">
+<label for="subject">Zkratka předmětu</label>
+<input id="subject" type="text" placeholder="NAPŘ. MAT" required maxlength="12">
+<label for="meta">Místnost / učitel</label>
+<input id="meta" type="text" placeholder="Např. HUM / KOS" maxlength="20">
+<div class="row">
+<div class="col">
+<label for="color">Barva</label>
+<select id="color">
+<option value="c-orange">Oranžová</option>
+<option value="c-blue">Modrá</option>
+<option value="c-pink">Růžová</option>
+<option value="c-green">Zelená</option>
+</select>
+</div>
+<div class="col">
+<label for="badge">Štítek (volitelně)</label>
+<input id="badge" type="text" placeholder="2IT · 10" maxlength="12">
+</div>
+</div>
+<div class="actions">
+<button type="button" id="deleteSlot" class="danger">Smazat</button>
+<button type="button" id="cancelBtn" class="ghost">Zrušit</button>
+<button type="submit" class="btn">Uložit</button>
+</div>
+</form>
+</div>
+</div>
+<script>
+/* Interaktivní rozvrh: 5 dní (PO–PÁ) × 7 hodin
+  Ukládání do localStorage pod klíčem 'rozvrh2it'
+*/
+const DAYS = [
+ {code:'PO', date:'24.11.'},
+ {code:'ÚT', date:'25.11.'},
+ {code:'ST', date:'26.11.'},
+ {code:'ČT', date:'27.11.'},
+ {code:'PÁ', date:'28.11.'}
+];
+const PERIODS = [1,2,3,4,5,6,7];
+const STORAGE_KEY = 'rozvrh2it_v1';
+const grid = document.getElementById('grid');
+const backdrop = document.getElementById('backdrop');
+const slotForm = document.getElementById('slotForm');
+const subjectInput = document.getElementById('subject');
+const metaInput = document.getElementById('meta');
+const colorSelect = document.getElementById('color');
+const badgeInput = document.getElementById('badge');
+const slotKeyInput = document.getElementById('slotKey');
+const deleteBtn = document.getElementById('deleteSlot');
+const cancelBtn = document.getElementById('cancelBtn');
+const resetBtn = document.getElementById('resetBtn');
+const exportBtn = document.getElementById('exportBtn');
+let data = {}; // { "PO-1": {subject,meta,color,badge}, ... }
+function loadData(){
+ try {
+   const raw = localStorage.getItem(STORAGE_KEY);
+   data = raw ? JSON.parse(raw) : {};
+ } catch(e){
+   console.error(e); data = {};
+ }
+}
+function saveData(){
+ localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}
+/* build grid rows */
+function buildGrid(){
+ // remove existing day rows (preserve header row which is first 8 children)
+ // Clear everything and rebuild for simplicity
+ grid.innerHTML = '';
+ // header blank
+ grid.appendChild(createCell('',''));
+ // period headers
+ PERIODS.forEach(n=>{
+   const head = createCell('head', `${n}<br><small>${periodTime(n)}</small>`);
+   grid.appendChild(head);
+ });
+ // rows: for each day, label + slots
+ DAYS.forEach(day=>{
+   const lbl = document.createElement('div'); lbl.className='cell';
+   lbl.innerHTML = `<div class="daylabel">${day.code}<br><small style="color:var(--muted)">${day.date}</small></div>`;
+   grid.appendChild(lbl);
+   PERIODS.forEach(p=>{
+     const key = slotKey(day.code,p);
+     const cell = document.createElement('div');
+     cell.className = 'cell';
+     const slot = document.createElement('div');
+     slot.tabIndex = 0;
+     slot.dataset.key = key;
+     slot.className = 'slot';
+     // fill if data
+     if (data[key]){
+       const obj = data[key];
+       slot.classList.add(obj.color||'c-blue');
+       slot.innerHTML = `<div class="badge">${escapeHtml(obj.badge||'')}</div>
+<div>
+<div class="subject">${escapeHtml(obj.subject)}</div>
+<div class="submeta">${escapeHtml(obj.meta||'')}</div>
+</div>`;
+     } else {
+       slot.classList.add('empty');
+       slot.textContent = '—';
+     }
+     // click: open modal
+     slot.addEventListener('click', ()=> openModal(key));
+     slot.addEventListener('keydown', e=>{ if(e.key==='Enter') openModal(key); });
+     cell.appendChild(slot);
+     grid.appendChild(cell);
+   });
+ });
+}
+/* helpers */
+function createCell(cls, html){
+ const c = document.createElement('div'); c.className='cell';
+ if(cls) c.classList.add(cls);
+ c.innerHTML = html || '';
+ return c;
+}
+function slotKey(day, period){ return `${day}-${period}`; }
+function periodTime(n){
+ const times = {
+   1:'8:05−8:50',2:'9:00−9:45',3:'10:05−10:50',4:'11:00−11:45',
+   5:'11:55−12:40',6:'12:45−13:30',7:'13:35−14:20'
+ };
+ return times[n] || '';
+}
+function escapeHtml(str){ return String(str||'').replace(/[&<>"']/g, m=> ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+/* modal behavior */
+function openModal(key){
+ // populate form from data or empty for new
+ const obj = data[key] || {subject:'',meta:'',color:'c-blue',badge:''};
+ slotKeyInput.value = key;
+ subjectInput.value = obj.subject || '';
+ metaInput.value = obj.meta || '';
+ colorSelect.value = obj.color || 'c-blue';
+ badgeInput.value = obj.badge || '';
+ backdrop.style.display = 'flex';
+ backdrop.setAttribute('aria-hidden','false');
+ subjectInput.focus();
+}
+function closeModal(){
+ backdrop.style.display = 'none';
+ backdrop.setAttribute('aria-hidden','true');
+}
+/* form handlers */
+slotForm.addEventListener('submit', e=>{
+ e.preventDefault();
+ const key = slotKeyInput.value;
+ const subject = subjectInput.value.trim();
+ const meta = metaInput.value.trim();
+ const color = colorSelect.value;
+ const badge = badgeInput.value.trim();
+ if(!subject){
+   alert('Zadej zkratku předmětu (např. MAT).');
+   subjectInput.focus();
+   return;
+ }
+ data[key] = { subject, meta, color, badge };
+ saveData();
+ buildGrid();
+ closeModal();
+});
+deleteBtn.addEventListener('click', ()=>{
+ const key = slotKeyInput.value;
+ if(!data[key]) { closeModal(); return; }
+ if(confirm('Opravdu smazat tuto hodinu?')){
+   delete data[key];
+   saveData();
+   buildGrid();
+   closeModal();
+ }
+});
+cancelBtn.addEventListener('click', ()=> closeModal());
+backdrop.addEventListener('click', e=>{
+ if(e.target === backdrop) closeModal();
+});
+/* reset / export */
+resetBtn.addEventListener('click', ()=>{
+ if(confirm('Smazat všechna data rozvrhu?')) {
+   data = {};
+   saveData();
+   buildGrid();
+ }
+});
+exportBtn.addEventListener('click', ()=>{
+ const text = JSON.stringify(data, null, 2);
+ // quick download
+ const blob = new Blob([text], {type:'application/json'});
+ const url = URL.createObjectURL(blob);
+ const a = document.createElement('a');
+ a.href = url; a.download = 'rozvrh-export.json';
+ document.body.appendChild(a); a.click();
+ a.remove(); URL.revokeObjectURL(url);
+});
+/* sample initial data if empty (based on your screenshots) */
+function seedIfEmpty(){
+ if(Object.keys(data).length>0) return;
+ const sample = {
+   "PO-1":{subject:"CJ",meta:"WIR",color:"c-orange",badge:"2IT · 10"},
+   "PO-2":{subject:"ANG",meta:"LOU",color:"c-orange",badge:"2IT"},
+   "PO-3":{subject:"MAT",meta:"HUM",color:"c-blue"},
+   "PO-4":{subject:"MAT",meta:"HUM",color:"c-blue"},
+   "PO-5":{subject:"KBB",meta:"HUM",color:"c-pink"},
+   "PO-6":{subject:"ZPD",meta:"KOCH",color:"c-blue"},
+   "ÚT-1":{subject:"DAT",meta:"PKO",color:"c-blue"},
+   "ÚT-2":{subject:"DAT",meta:"PKO",color:"c-blue"},
+   "ÚT-3":{subject:"EKO",meta:"POL",color:"c-pink"},
+   "ÚT-4":{subject:"POS",meta:"BUB",color:"c-orange"},
+   "ÚT-5":{subject:"TEV",meta:"KOS",color:"c-blue"},
+   "ÚT-6":{subject:"TEV",meta:"KOS",color:"c-blue"},
+   "ÚT-7":{subject:"ZEL",meta:"PIT",color:"c-blue"},
+   "ST-1":{subject:"CJ",meta:"WIR",color:"c-orange"},
+   "ST-2":{subject:"PRG",meta:"PKO",color:"c-orange"},
+   "ST-3":{subject:"PRG",meta:"PKO",color:"c-orange"},
+   "ST-4":{subject:"ANG",meta:"LOU",color:"c-orange"},
+   "ST-5":{subject:"MAT",meta:"HUM",color:"c-blue"},
+   "ST-6":{subject:"WEB",meta:"BUB",color:"c-orange"},
+   "ST-7":{subject:"WEB",meta:"BUB",color:"c-orange"},
+   "ČT-1":{subject:"ANG",meta:"LOU",color:"c-orange"},
+   "ČT-2":{subject:"PRX",meta:"KOTW",color:"c-orange"},
+   "ČT-3":{subject:"PRX",meta:"KOTW",color:"c-blue"},
+   "ČT-4":{subject:"PRX",meta:"KOTW",color:"c-blue"},
+   "ČT-5":{subject:"ZEL",meta:"PIT",color:"c-blue"},
+   "ČT-6":{subject:"ZPD",meta:"KOCH",color:"c-blue"},
+   "ČT-7":{subject:"POS",meta:"BUB",color:"c-orange"},
+   "PÁ-1":{subject:"LU",meta:"WIR",color:"c-blue"},
+   "PÁ-2":{subject:"EKO",meta:"POL",color:"c-blue"},
+   "PÁ-3":{subject:"ZSV",meta:"POL",color:"c-pink"},
+   "PÁ-4":{subject:"ICT",meta:"TOM",color:"c-pink"},
+   "PÁ-5":{subject:"KBB",meta:"PKO",color:"c-blue"},
+   "PÁ-6":{subject:"POS",meta:"BUB",color:"c-orange"}
+ };
+ data = sample;
+ saveData();
+}
+/* init */
+loadData();
+if(Object.keys(data).length===0) seedIfEmpty();
+buildGrid();
+</script>
+</body>
+</html>
